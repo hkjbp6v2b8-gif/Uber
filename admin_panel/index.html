@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة الإدارة</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#f4f5f7;color:#111}
+  header{background:#111;color:#fff;padding:12px 20px;display:flex;gap:12px;align-items:center}
+  header h1{font-size:18px;margin:0;flex:1}
+  main{padding:20px;max-width:1100px;margin:auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:#fff;border-radius:10px;padding:14px;box-shadow:0 1px 3px #0002}
+  .card b{display:block;font-size:24px}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden}
+  th,td{padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:14px}
+  .wrap{overflow-x:auto}
+  button,input{padding:8px 12px;border-radius:6px;border:1px solid #ccc;font-size:14px}
+  button{background:#111;color:#fff;border:0;cursor:pointer}
+  nav button{background:#333;margin-inline-start:6px}
+  #login{max-width:320px;margin:80px auto;display:grid;gap:10px}
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h2>تسجيل دخول المدير</h2>
+  <input id="phone" placeholder="رقم الهاتف">
+  <input id="pass" type="password" placeholder="كلمة المرور">
+  <button onclick="login()">دخول</button>
+  <small id="err" style="color:red"></small>
+</div>
+<div id="app" hidden>
+  <header><h1>لوحة الإدارة</h1>
+    <nav><button onclick="show('users')">المستخدمون</button><button onclick="show('rides')">الرحلات</button><button onclick="logout()">خروج</button></nav>
+  </header>
+  <main>
+    <div class="cards" id="stats"></div>
+    <div class="wrap"><table id="tbl"></table></div>
+  </main>
+</div>
+<script>
+// Change API to your server address
+const API = localStorage.getItem('api') || 'http://localhost:3000';
+let token = sessionStorage.getItem('t');
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path, opts = {}) {
+  const r = await fetch(API + path, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token } });
+  if (r.status === 401 || r.status === 403) { logout(); throw new Error('auth'); }
+  return r.json();
+}
+async function login() {
+  const r = await fetch(API + '/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone.value, password: pass.value }) });
+  const d = await r.json();
+  if (!r.ok || d.user.role !== 'admin') { err.textContent = 'بيانات غير صحيحة أو ليس مديراً'; return; }
+  token = d.accessToken; sessionStorage.setItem('t', token); start();
+}
+function logout() { sessionStorage.removeItem('t'); token = null; start(); }
+async function start() {
+  document.getElementById('login').hidden = !!token;
+  document.getElementById('app').hidden = !token;
+  if (!token) return;
+  const s = await api('/admin/stats');
+  const labels = { riders: 'الركاب', drivers: 'السائقون', drivers_online: 'متصلون الآن', rides_total: 'كل الرحلات', rides_completed: 'المكتملة', revenue: 'الإيرادات' };
+  document.getElementById('stats').innerHTML = Object.entries(labels).map(([k, v]) => `<div class="card">${v}<b>${esc(s[k])}</b></div>`).join('');
+  show('users');
+}
+async function show(what) {
+  const t = document.getElementById('tbl');
+  if (what === 'users') {
+    const { users } = await api('/admin/users');
+    t.innerHTML = '<tr><th>الاسم</th><th>الهاتف</th><th>الدور</th><th>التقييم</th><th>الحالة</th><th></th></tr>' +
+      users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.phone)}</td><td>${esc(u.role)}</td><td>${esc(u.rating)}</td>
+      <td>${u.role === 'driver' ? (u.approved ? 'معتمد' : 'بانتظار الاعتماد') : ''}</td>
+      <td>${u.role === 'driver' ? `<button onclick="approve('${esc(u.id)}',${!u.approved})">${u.approved ? 'إيقاف' : 'اعتماد'}</button>` : ''}</td></tr>`).join('');
+  } else {
+    const { rides } = await api('/admin/rides');
+    t.innerHTML = '<tr><th>الحالة</th><th>الأجرة</th><th>المسافة</th><th>النوع</th><th>الدفع</th><th>التاريخ</th></tr>' +
+      rides.map((r) => `<tr><td>${esc(r.status)}</td><td>${esc(r.fare)}</td><td>${esc(r.distance_km)}</td><td>${esc(r.vehicle_type)}</td><td>${esc(r.payment_method)}</td><td>${esc(String(r.requested_at).slice(0, 16).replace('T', ' '))}</td></tr>`).join('');
+  }
+}
+async function approve(id, approved) {
+  await api(`/admin/drivers/${id}/approve`, { method: 'PATCH', body: JSON.stringify({ approved }) });
+  show('users');
+}
+start();
+</script>
+</body>
+</html>

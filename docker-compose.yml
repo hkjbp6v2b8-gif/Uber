@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ride
+      POSTGRES_PASSWORD: ride
+      POSTGRES_DB: ride
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  backend:
+    build: ./backend
+    env_file: ./backend/.env.example
+    environment:
+      DATABASE_URL: postgres://ride:ride@db:5432/ride
+      REDIS_URL: redis://redis:6379
+    depends_on: [db, redis]
+    ports: ["3000:3000"]
+volumes:
+  pgdata:
